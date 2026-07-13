@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KQL Assistant</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --accent: #58a6ff;
+    --accent2: #d29922;
+    --green: #3fb950;
+    --red: #f85149;
+    --muted: #8b949e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 40px 20px;
+    display: flex;
+    justify-content: center;
+  }
+  .wrap { width: 100%; max-width: 780px; }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px 0;
+    color: var(--accent);
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 16px;
+    margin: 0;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+  }
+  .tab.active-elastic {
+    color: var(--green);
+    border-bottom-color: var(--green);
+  }
+  .tab.active-sentinel {
+    color: var(--accent2);
+    border-bottom-color: var(--accent2);
+  }
+
+  textarea {
+    width: 100%;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    resize: vertical;
+    min-height: 90px;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  button {
+    margin-top: 12px;
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .output-block { margin-top: 24px; }
+  .output-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  pre#output {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 24px;
+    color: var(--green);
+  }
+  pre#output.error { color: var(--red); }
+  .copy-btn {
+    margin-top: 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+  .examples { margin-top: 28px; }
+  .examples-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .example {
+    display: inline-block;
+    font-size: 12px;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    margin: 0 6px 6px 0;
+    cursor: pointer;
+    background: var(--panel);
+  }
+  .example:hover { border-color: var(--accent); }
+
+  .playbook-section {
+    margin-top: 40px;
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+  }
+  .playbook-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .playbook-header h2 {
+    font-size: 16px;
+    margin: 0;
+    color: var(--accent);
+  }
+  .playbook-btn {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    margin-top: 0;
+  }
+  .playbook-desc {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .detection-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .detection-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .detection-meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .detection-meta .mitre {
+    color: var(--accent);
+    font-family: "SFMono-Regular", Consolas, monospace;
+  }
+  .detection-kql {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 12.5px;
+    color: var(--green);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .detection-kql.none {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .detection-notes {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .detection-copy {
+    margin-top: 8px;
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>&gt; KQL Assistant</h1>
+  <div class="subtitle">
+    Plain English → query, generated locally via Ollama. <span class="badge">model: {{ model }}</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active-elastic" id="tab-elastic">Elastic — Kibana KQL</button>
+    <button class="tab" id="tab-sentinel">Sentinel — Kusto KQL</button>
+  </div>
+
+  <textarea id="query" placeholder="e.g. find any traffic to casepilot360.com on port 80, or logs mentioning ip 172.17.3.6"></textarea>
+  <br>
+  <button id="submit">Generate Query</button>
+
+  <div class="output-block">
+    <div class="output-label">Query</div>
+    <pre id="output"></pre>
+    <button class="copy-btn" id="copy" style="display:none;">Copy</button>
+  </div>
+
+  <div class="examples">
+    <div class="examples-label">Try one</div>
+    <div id="examples-list"></div>
+  </div>
+
+  <div class="playbook-section">
+    <div class="playbook-header">
+      <h2 id="playbook-title">Full Hunt Package — this exercise</h2>
+      <button class="playbook-btn" id="load-playbook">Load detections</button>
+    </div>
+    <div class="playbook-desc">
+      Deterministic, pre-built queries for every TTP found in the ops plan —
+      no LLM involved, so this is instant and doesn't depend on model quality.
+    </div>
+    <div id="playbook-list"></div>
+  </div>
+</div>
+
+<script>
+const EXAMPLES = {
+  elastic: [
+    "logs with ip 172.17.3.6",
+    "beacon to casepilot360.com on port 80",
+    "smb share named mojo.5688.8052.18389493978708887739",
+    "failed logins for user admin from an external ip",
+    "powershell process spawned by winword.exe",
+  ],
+  sentinel: [
+    "all sign-ins from ip 45.9.148.112",
+    "failed sign-ins for teddy.potts@northgrid.com",
+    "AssumeRole activity for NorthGridEngineeringAccess",
+    "key vault reads in AzureActivity",
+    "RDP logons to site2-eng4",
+  ],
+};
+
+const PLACEHOLDERS = {
+  elastic: "e.g. find any traffic to casepilot360.com on port 80, or logs mentioning ip 172.17.3.6",
+  sentinel: "e.g. find AssumeRole calls for the NorthGridEngineeringAccess role, or sign-ins from ip 45.9.148.112",
+};
+
+const DETECTION_COUNTS = {
+  elastic: {{ elastic_count }},
+  sentinel: {{ sentinel_count }},
+};
+
+let currentFlavor = "elastic";
+
+const queryEl = document.getElementById("query");
+const outputEl = document.getElementById("output");
+const submitEl = document.getElementById("submit");
+const copyEl = document.getElementById("copy");
+const examplesList = document.getElementById("examples-list");
+const tabElastic = document.getElementById("tab-elastic");
+const tabSentinel = document.getElementById("tab-sentinel");
+const loadPlaybookBtn = document.getElementById("load-playbook");
+const playbookList = document.getElementById("playbook-list");
+const playbookTitle = document.getElementById("playbook-title");
+
+function renderExamples() {
+  examplesList.innerHTML = "";
+  EXAMPLES[currentFlavor].forEach((text) => {
+    const span = document.createElement("span");
+    span.className = "example";
+    span.textContent = text;
+    span.addEventListener("click", () => {
+      queryEl.value = text;
+      queryEl.focus();
+    });
+    examplesList.appendChild(span);
+  });
+}
+
+function setFlavor(flavor) {
+  currentFlavor = flavor;
+  tabElastic.classList.toggle("active-elastic", flavor === "elastic");
+  tabSentinel.classList.toggle("active-sentinel", flavor === "sentinel");
+  queryEl.placeholder = PLACEHOLDERS[flavor];
+  loadPlaybookBtn.textContent = `Load ${DETECTION_COUNTS[flavor]} detections`;
+  playbookTitle.textContent = flavor === "elastic"
+    ? "Full Hunt Package — red team ops plan (Elastic)"
+    : "Full Hunt Package — NorthGrid cloud pivot (Sentinel)";
+  playbookList.innerHTML = "";
+  outputEl.textContent = "";
+  outputEl.classList.remove("error");
+  copyEl.style.display = "none";
+  renderExamples();
+}
+
+tabElastic.addEventListener("click", () => setFlavor("elastic"));
+tabSentinel.addEventListener("click", () => setFlavor("sentinel"));
+
+async function generate() {
+  const q = queryEl.value.trim();
+  if (!q) return;
+  submitEl.disabled = true;
+  submitEl.textContent = "Generating…";
+  outputEl.classList.remove("error");
+  outputEl.textContent = "";
+  copyEl.style.display = "none";
+
+  try {
+    const res = await fetch("/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q, flavor: currentFlavor }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      outputEl.classList.add("error");
+      outputEl.textContent = data.error || "Something went wrong.";
+    } else {
+      outputEl.textContent = data.query;
+      copyEl.style.display = "inline-block";
+    }
+  } catch (err) {
+    outputEl.classList.add("error");
+    outputEl.textContent = "Request failed: " + err.message;
+  } finally {
+    submitEl.disabled = false;
+    submitEl.textContent = "Generate Query";
+  }
+}
+
+submitEl.addEventListener("click", generate);
+queryEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generate();
+});
+copyEl.addEventListener("click", () => {
+  navigator.clipboard.writeText(outputEl.textContent);
+  copyEl.textContent = "Copied!";
+  setTimeout(() => (copyEl.textContent = "Copy"), 1200);
+});
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+loadPlaybookBtn.addEventListener("click", async () => {
+  loadPlaybookBtn.disabled = true;
+  loadPlaybookBtn.textContent = "Loading…";
+  try {
+    const res = await fetch(`/playbook?flavor=${currentFlavor}`);
+    const data = await res.json();
+    playbookList.innerHTML = "";
+    data.detections.forEach((d, i) => {
+      const card = document.createElement("div");
+      card.className = "detection-card";
+      const kqlHtml = d.kql
+        ? `<div class="detection-kql" id="pk-${i}">${escapeHtml(d.kql)}</div>
+           <button class="copy-btn detection-copy" data-idx="${i}">Copy</button>`
+        : `<div class="detection-kql none">No static query — see notes (this one needs an ML/statistical approach).</div>`;
+      card.innerHTML = `
+        <div class="detection-title">${escapeHtml(d.name)}</div>
+        <div class="detection-meta">
+          <span class="mitre">${escapeHtml(d.technique_id)}</span> · ${escapeHtml(d.technique_name)} ·
+          tactic: ${escapeHtml(d.tactic)}
+        </div>
+        ${kqlHtml}
+        <div class="detection-notes">${escapeHtml(d.notes)}</div>
+      `;
+      playbookList.appendChild(card);
+    });
+    playbookList.querySelectorAll(".detection-copy").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = btn.getAttribute("data-idx");
+        const text = document.getElementById(`pk-${idx}`).textContent;
+        navigator.clipboard.writeText(text);
+        btn.textContent = "Copied!";
+        setTimeout(() => (btn.textContent = "Copy"), 1200);
+      });
+    });
+    loadPlaybookBtn.textContent = `Reload ${data.count} detections`;
+  } catch (err) {
+    playbookList.innerHTML = `<div class="detection-notes">Failed to load: ${escapeHtml(err.message)}</div>`;
+    loadPlaybookBtn.textContent = "Retry";
+  } finally {
+    loadPlaybookBtn.disabled = false;
+  }
+});
+
+renderExamples();
+</script>
+</body>
+</html>
