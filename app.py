@@ -25,11 +25,17 @@ import requests
 from flask import Flask, request, jsonify, render_template
 from iocs import DETECTIONS as ELASTIC_DETECTIONS, KNOWN_INFRASTRUCTURE as ELASTIC_INFRA
 from sentinel_iocs import DETECTIONS as SENTINEL_DETECTIONS, KNOWN_INFRASTRUCTURE as SENTINEL_INFRA
+from es_dsl_alerts import CONFIRMED_ALERTS as DSL_ALERTS, MASTER_ALERT as DSL_MASTER_ALERT
 
 app = Flask(__name__)
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
+
+# Models we suggest in the UI dropdown even if the user hasn't pulled them yet.
+# Any locally-pulled model not in this list still shows up (tagged "installed"),
+# and the UI also lets you type an arbitrary model name.
+SUGGESTED_MODELS = ["llama3", "llama3.1", "qwen2.5", "qwen2.5-coder", "mistral", "mistral-nemo"]
 
 # ---------------------------------------------------------------------------
 # Elastic (Kibana KQL) flavor
@@ -209,7 +215,48 @@ def index():
         model=OLLAMA_MODEL,
         elastic_count=len(ELASTIC_DETECTIONS),
         sentinel_count=len(SENTINEL_DETECTIONS),
+        dsl_count=len(DSL_ALERTS),
     )
+
+
+@app.route("/models", methods=["GET"])
+def models():
+    """List installed Ollama models plus a suggested set for the picker."""
+    installed = []
+    reachable = True
+    try:
+        resp = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=5)
+        resp.raise_for_status()
+        for m in resp.json().get("models", []):
+            name = m.get("name") or m.get("model") or ""
+            # strip the ":latest"/":8b" tag suffix for a cleaner picker label
+            base = name.split(":")[0]
+            if base and base not in installed:
+                installed.append(base)
+    except requests.exceptions.RequestException:
+        reachable = False
+
+    return jsonify({
+        "default": OLLAMA_MODEL,
+        "installed": sorted(installed),
+        "suggested": SUGGESTED_MODELS,
+        "ollama_reachable": reachable,
+    })
+
+
+def _ordered_detections(detections):
+    """Sequenced entries first (ascending, by confirmed MSEL/telemetry order),
+    then unsequenced entries after in their original list order. Detections
+    without a 'sequence' key (e.g. Sentinel, or older Elastic entries) sort
+    as unsequenced rather than erroring."""
+    indexed = list(enumerate(detections))
+    return [
+        d for _, d in sorted(
+            indexed,
+            key=lambda pair: (0, pair[1].get("sequence")) if pair[1].get("sequence") is not None
+            else (1, pair[0]),
+        )
+    ]
 
 
 @app.route("/playbook", methods=["GET"])
@@ -222,7 +269,70 @@ def playbook():
         "flavor": flavor,
         "count": len(f["detections"]),
         "infrastructure": f["infrastructure"],
-        "detections": f["detections"],
+        "detections": _ordered_detections(f["detections"]),
+    })
+
+
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+NETWORK_DIAGRAM_PATHS = {
+    "elastic": os.path.join(_APP_DIR, "NETWORK_DIAGRAM.md"),
+    "sentinel": os.path.join(_APP_DIR, "NORTHGRID_NETWORK_DIAGRAM.md"),
+}
+
+
+@app.route("/network-diagram", methods=["GET"])
+def network_diagram():
+    """Serve a network diagram markdown file split into its Mermaid diagram
+    block (for client-side mermaid.js rendering) and the surrounding
+    markdown (legend, table, notes — for client-side marked.js rendering).
+    ?flavor=elastic (default, Site2 intrusion) or ?flavor=sentinel
+    (NorthGrid Azure-to-AWS cloud pivot)."""
+    flavor = request.args.get("flavor", "elastic")
+    path = NETWORK_DIAGRAM_PATHS.get(flavor)
+    if path is None:
+        return jsonify({"error": f"Unknown flavor '{flavor}'. Use 'elastic' or 'sentinel'."}), 400
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        return jsonify({"error": f"{os.path.basename(path)} not found next to app.py"}), 404
+
+    match = re.search(r"```mermaid\n(.*?)\n```", text, re.DOTALL)
+    mermaid = match.group(1) if match else None
+    markdown_rest = (text[:match.start()] + text[match.end():]) if match else text
+
+    return jsonify({"flavor": flavor, "mermaid": mermaid, "markdown_rest": markdown_rest})
+
+
+@app.route("/dsl-alerts", methods=["GET"])
+def dsl_alerts():
+    """CONFIRMED-only Elasticsearch Query DSL alerts (es_dsl_alerts.py) — no
+    LLM involved, this is a static, evidence-backed list, same spirit as
+    /playbook but for raw Query DSL instead of KQL strings."""
+    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    alerts = sorted(DSL_ALERTS, key=lambda a: sev_order.get(a.get("severity"), 9))
+    return jsonify({
+        "count": len(alerts),
+        "master": {
+            "id": DSL_MASTER_ALERT["id"],
+            "name": DSL_MASTER_ALERT["name"],
+            "query": json.dumps(DSL_MASTER_ALERT["query"], indent=2),
+        },
+        "alerts": [
+            {
+                "id": a["id"],
+                "name": a["name"],
+                "tactic": a["tactic"],
+                "technique_id": a["technique_id"],
+                "severity": a["severity"],
+                "risk_score": a["risk_score"],
+                "source_ioc_id": a["source_ioc_id"],
+                "notes": a["notes"],
+                "query": json.dumps(a["query"], indent=2),
+            }
+            for a in alerts
+        ],
     })
 
 
@@ -231,6 +341,7 @@ def generate():
     data = request.get_json(force=True, silent=True) or {}
     user_query = (data.get("query") or "").strip()
     flavor = data.get("flavor", "elastic")
+    model = (data.get("model") or "").strip() or OLLAMA_MODEL
 
     if flavor not in FLAVORS:
         return jsonify({"error": f"Unknown flavor '{flavor}'. Use 'elastic' or 'sentinel'."}), 400
@@ -247,7 +358,7 @@ def generate():
         resp = requests.post(
             f"{OLLAMA_HOST}/api/chat",
             json={
-                "model": OLLAMA_MODEL,
+                "model": model,
                 "messages": messages,
                 "stream": False,
                 "options": {"temperature": 0.1},
@@ -259,6 +370,10 @@ def generate():
         return jsonify({
             "error": f"Can't reach Ollama at {OLLAMA_HOST}. Is it running? Try: ollama serve"
         }), 502
+    except requests.exceptions.HTTPError:
+        return jsonify({
+            "error": f"Ollama rejected model '{model}'. Pull it first: ollama pull {model}"
+        }), 502
     except requests.exceptions.RequestException as exc:
         return jsonify({"error": f"Ollama request failed: {exc}"}), 502
 
@@ -266,7 +381,7 @@ def generate():
     raw = body.get("message", {}).get("content", "")
     query_text = strip_code_fences(raw)
 
-    return jsonify({"query": query_text, "flavor": flavor, "model": OLLAMA_MODEL})
+    return jsonify({"query": query_text, "flavor": flavor, "model": model})
 
 
 if __name__ == "__main__":
